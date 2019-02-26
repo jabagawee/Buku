@@ -148,9 +148,9 @@ def test_parse_tags(keywords, exp_res):
 )
 def test_print_rec_with_filter(records, field_filter, exp_res):
     """test func."""
-    with mock.patch('buku.print', create=True) as m_print:
+    with mock.patch('buku.bukuformatter.print', create=True) as m_print:
         import buku
-        buku.print_rec_with_filter(records, field_filter)
+        buku.bukuformatter.Formatter().print_rec_with_filter(records, field_filter)
         for res in exp_res:
             m_print.assert_any_call(res)
 

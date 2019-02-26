@@ -43,6 +43,7 @@ from urllib3.util import parse_url
 from .bukuconstants import (__version__, __author__, __license__,  # pylint: disable=unused-import # noqa: F401
                             COLORMAP, DELIM, SKIP_MIMES, USER_AGENT, TEXT_BROWSERS)
 from .bukucrypt import BukuCrypt
+from .bukuformatter import Formatter
 from .bukuimporter import BukuImporter
 from .bukunetworking import get_PoolManager, network_handler
 from .bukuutil import (get_default_dbdir, is_nongeneric_url, delim_wrap, parse_tags, get_system_editor,
@@ -51,15 +52,6 @@ from .extended_argument_parser import create_argparser, ExtendedArgumentParser
 
 # Global variables
 INTERRUPTED = False  # Received SIGINT
-PROMPTMSG = 'buku (? for help): '  # Prompt message string
-
-# Default format specifiers to print records
-ID_STR = '%d. %s [%s]\n'
-ID_DB_STR = '%d. %s'
-MUTE_STR = '%s (L)\n'
-URL_STR = '   > %s\n'
-DESC_STR = '   + %s\n'
-TAG_STR = '   # %s\n'
 
 # Set up logging
 LOGGER = logging.getLogger()
@@ -82,7 +74,7 @@ class BukuDb:
         Sets the verbosity of the APIs. Default is False.
     """
 
-    def __init__(self, json=False, field_filter=0, chatty=False, dbfile=None, colorize=True):
+    def __init__(self, json=False, field_filter=0, chatty=False, dbfile=None, colorize=True, formatter=None):
         """Database initialization API.
 
         Parameters
@@ -95,6 +87,8 @@ class BukuDb:
             Sets the verbosity of the APIs. Default is False.
         colorize : bool, optional
             Indicates whether color should be used in output. Default is True.
+        formatter : Formatter, optional
+            A valid instance of Formatter class.
         """
 
         self.json = json
@@ -102,6 +96,10 @@ class BukuDb:
         self.chatty = chatty
         self.colorize = colorize
         self.conn, self.cur = BukuDb.initdb(dbfile, self.chatty)
+        if formatter is None:
+            self.formatter = Formatter()
+        else:
+            self.formatter = formatter
 
     @staticmethod
     def initdb(dbfile=None, chatty=False):
@@ -1372,7 +1370,7 @@ class BukuDb:
                 return False
 
             if not self.json:
-                print_rec_with_filter(results, self.field_filter)
+                self.formatter.print_rec_with_filter(results, self.field_filter)
             else:
                 print(format_json(results, True, self.field_filter))
 
@@ -1386,7 +1384,7 @@ class BukuDb:
             return True
 
         if not self.json:
-            print_rec_with_filter(resultset, self.field_filter)
+            self.formatter.print_rec_with_filter(resultset, self.field_filter)
         else:
             print(format_json(resultset, field_filter=self.field_filter))
 
@@ -2427,7 +2425,7 @@ def show_taglist(obj):
         print()
 
 
-def prompt(obj, results, noninteractive=False, deep=False, listtags=False, suggest=False, num=10):
+def prompt(obj, results, noninteractive=False, deep=False, listtags=False, suggest=False, num=10, formatter=None):
     """Show each matching result from a search and prompt.
 
     Parameters
@@ -2446,10 +2444,19 @@ def prompt(obj, results, noninteractive=False, deep=False, listtags=False, sugge
         If True, suggest similar tags on edit and add bookmark.
     num : int, optional
         Number of results to show per page. Default is 10.
+    formatter : Formatter, optional
+        A valid instance of Formatter class
     """
 
     if not isinstance(obj, BukuDb):
         LOGERR('Not a BukuDb instance')
+        return
+
+    if formatter is None:
+        formatter = Formatter()
+
+    if not isinstance(formatter, Formatter):
+        LOGERR('Not a Formatter instance')
         return
 
     new_results = bool(results)
@@ -2463,7 +2470,7 @@ def prompt(obj, results, noninteractive=False, deep=False, listtags=False, sugge
         try:
             for row in results:
                 count += 1
-                print_single_rec(row, count)
+                formatter.print_single_rec(row, count)
         except Exception:
             pass
         finally:
@@ -2481,16 +2488,16 @@ def prompt(obj, results, noninteractive=False, deep=False, listtags=False, sugge
                     print()
                     for row in results[cur_index:next_index]:
                         count += 1
-                        print_single_rec(row, count)
+                        formatter.print_single_rec(row, count)
                 else:
                     print('No more results')
             else:
                 print('0 results')
 
         try:
-            nav = read_in(PROMPTMSG)
+            nav = read_in(formatter.prompt_msg)
             if not nav:
-                nav = read_in(PROMPTMSG)
+                nav = read_in(formatter.prompt_msg)
                 if not nav:
                     # Quit on double enter
                     break
@@ -2731,100 +2738,6 @@ def copy_to_clipboard(content):
 
     print('Failed to locate suitable clipboard utility')
     return
-
-
-def print_rec_with_filter(records, field_filter=0):
-    """Print records filtered by field.
-
-    User determines which fields in the records to display
-    by using the --format option.
-
-    Parameters
-    ----------
-    records : list or sqlite3.Cursor object
-        List of bookmark records to print
-    field_filter : int
-        Integer indicating which fields to print.
-    """
-
-    try:
-        if field_filter == 0:
-            for row in records:
-                print_single_rec(row)
-        elif field_filter == 1:
-            for row in records:
-                print('%s\t%s' % (row[0], row[1]))
-        elif field_filter == 2:
-            for row in records:
-                print('%s\t%s\t%s' % (row[0], row[1], row[3][1:-1]))
-        elif field_filter == 3:
-            for row in records:
-                print('%s\t%s' % (row[0], row[2]))
-        elif field_filter == 4:
-            for row in records:
-                print('%s\t%s\t%s\t%s' % (row[0], row[1], row[2], row[3][1:-1]))
-        elif field_filter == 5:
-            for row in records:
-                print('%s\t%s\t%s' % (row[0], row[2], row[3][1:-1]))
-        elif field_filter == 10:
-            for row in records:
-                print(row[1])
-        elif field_filter == 20:
-            for row in records:
-                print('%s\t%s' % (row[1], row[3][1:-1]))
-        elif field_filter == 30:
-            for row in records:
-                print(row[2])
-        elif field_filter == 40:
-            for row in records:
-                print('%s\t%s\t%s' % (row[1], row[2], row[3][1:-1]))
-        elif field_filter == 50:
-            for row in records:
-                print('%s\t%s' % (row[2], row[3][1:-1]))
-    except BrokenPipeError:
-        sys.stdout = os.fdopen(1)
-        sys.exit(1)
-
-
-def print_single_rec(row, idx=0):  # NOQA
-    """Print a single DB record.
-
-    Handles both search results and individual record.
-
-    Parameters
-    ----------
-    row : tuple
-        Tuple representing bookmark record data.
-    idx : int, optional
-        Search result index. If 0, print with DB index.
-        Default is 0.
-    """
-
-    str_list = []
-
-    # Start with index and title
-    if idx != 0:
-        id_title_res = ID_STR % (idx, row[2] if row[2] else 'Untitled', row[0])
-    else:
-        id_title_res = ID_DB_STR % (row[0], row[2] if row[2] else 'Untitled')
-        # Indicate if record is immutable
-        if row[5] & 1:
-            id_title_res = MUTE_STR % (id_title_res)
-        else:
-            id_title_res += '\n'
-
-    str_list.append(id_title_res)
-    str_list.append(URL_STR % (row[1]))
-    if row[4]:
-        str_list.append(DESC_STR % (row[4]))
-    if row[3] != DELIM:
-        str_list.append(TAG_STR % (row[3][1:-1]))
-
-    try:
-        print(''.join(str_list))
-    except BrokenPipeError:
-        sys.stdout = os.fdopen(1)
-        sys.exit(1)
 
 
 def browse(url):
@@ -3078,8 +2991,6 @@ def setcolors(args):
 # main starts here
 def main():
     """Main."""
-    global ID_STR, ID_DB_STR, MUTE_STR, URL_STR, DESC_STR, TAG_STR, PROMPTMSG
-
     title_in = None
     tags_in = None
     desc_in = None
@@ -3113,6 +3024,7 @@ def main():
         if args.colorstr is None and colorstr_env is not None:
             args.nc = True
 
+    formatter = Formatter()
     # Handle color output preference
     if args.nc:
         logging.basicConfig(format='[%(levelname)s] %(message)s')
@@ -3128,18 +3040,18 @@ def main():
 
         ID = setcolors(colorstr)[0] + '%d. ' + COLORMAP['x']
         ID_DB_dim = COLORMAP['z'] + '[%s]\n' + COLORMAP['x']
-        ID_STR = ID + setcolors(colorstr)[1] + '%s ' + COLORMAP['x'] + ID_DB_dim
-        ID_DB_STR = ID + setcolors(colorstr)[1] + '%s' + COLORMAP['x']
-        MUTE_STR = '%s \x1b[2m(L)\x1b[0m\n'
-        URL_STR = COLORMAP['j'] + '   > ' + setcolors(colorstr)[2] + '%s\n' + COLORMAP['x']
-        DESC_STR = COLORMAP['j'] + '   + ' + setcolors(colorstr)[3] + '%s\n' + COLORMAP['x']
-        TAG_STR = COLORMAP['j'] + '   # ' + setcolors(colorstr)[4] + '%s\n' + COLORMAP['x']
+        formatter = Formatter(
+            ID + setcolors(colorstr)[1] + '%s ' + COLORMAP['x'] + ID_DB_dim,
+            ID + setcolors(colorstr)[1] + '%s' + COLORMAP['x'],
+            '%s \x1b[2m(L)\x1b[0m\n',
+            COLORMAP['j'] + '   > ' + setcolors(colorstr)[2] + '%s\n' + COLORMAP['x'],
+            COLORMAP['j'] + '   + ' + setcolors(colorstr)[3] + '%s\n' + COLORMAP['x'],
+            COLORMAP['j'] + '   # ' + setcolors(colorstr)[4] + '%s\n' + COLORMAP['x'],
+            # Enable prompt with reverse video
+            '\x1b[7mbuku (? for help)\x1b[0m ')
 
         # Enable color in logs
         setup_logger(LOGGER)
-
-        # Enable prompt with reverse video
-        PROMPTMSG = '\x1b[7mbuku (? for help)\x1b[0m '
 
     # Enable browser output in case of a text based browser
     if os.getenv('BROWSER') in TEXT_BROWSERS:
@@ -3152,8 +3064,8 @@ def main():
 
     # Fallback to prompt if no arguments
     if len(sys.argv) == 1:
-        bdb = BukuDb()
-        prompt(bdb, None)
+        bdb = BukuDb(formatter=formatter)
+        prompt(bdb, None, formatter=formatter)
         bdb.close_quit(0)
 
     # Set up debugging
@@ -3198,7 +3110,8 @@ def main():
         args.format,
         not args.tacit,
         dbfile=args.db[0] if args.db is not None else None,
-        colorize=not args.nc
+        colorize=not args.nc,
+        formatter=formatter
     )
 
     # Editor mode
@@ -3374,7 +3287,7 @@ def main():
                 )
         else:
             # Use sub prompt to list all tags
-            prompt(bdb, None, args.np, listtags=True, suggest=args.suggest)
+            prompt(bdb, None, args.np, listtags=True, suggest=args.suggest, formatter=formatter)
     elif args.exclude is not None:
         LOGERR('No search criteria to exclude results from')
     else:
@@ -3406,9 +3319,9 @@ def main():
 
         if not args.json and not args.format:
             num = 10 if not args.count else args.count
-            prompt(bdb, search_results, oneshot, args.deep, num=num)
+            prompt(bdb, search_results, oneshot, args.deep, num=num, formatter=formatter)
         elif not args.json:
-            print_rec_with_filter(search_results, field_filter=args.format)
+            formatter.print_rec_with_filter(search_results, field_filter=args.format)
         else:
             # Printing in JSON format is non-interactive
             print(format_json(search_results, field_filter=args.format))
@@ -3554,13 +3467,13 @@ def main():
         if not args.print:
             if args.count:
                 search_results = bdb.list_using_id()
-                prompt(bdb, search_results, args.np, False, num=args.count)
+                prompt(bdb, search_results, args.np, False, num=args.count, formatter=formatter)
             else:
                 bdb.print_rec(0)
         else:
             if args.count:
                 search_results = bdb.list_using_id(args.print)
-                prompt(bdb, search_results, args.np, False, num=args.count)
+                prompt(bdb, search_results, args.np, False, num=args.count, formatter=formatter)
             else:
                 try:
                     for idx in args.print:
