@@ -78,8 +78,6 @@ COLORMAP = {k: '\x1b[%sm' % v for k, v in {
 }.items()}
 
 USER_AGENT = 'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:61.0) Gecko/20100101 Firefox/61.0'
-MYHEADERS = None  # Default dictionary of headers
-MYPROXY = None  # Default proxy
 TEXT_BROWSERS = ['elinks', 'links', 'links2', 'lynx', 'w3m', 'www-browser']
 IGNORE_FF_BOOKMARK_FOLDERS = frozenset(["placesRoot", "bookmarksMenuFolder"])
 
@@ -87,6 +85,38 @@ IGNORE_FF_BOOKMARK_FOLDERS = frozenset(["placesRoot", "bookmarksMenuFolder"])
 LOGGER = logging.getLogger()
 LOGDBG = LOGGER.debug
 LOGERR = LOGGER.error
+
+
+def gen_headers():
+    """Generate headers for network connection."""
+
+    headers = {
+        'Accept-Encoding': 'gzip,deflate',
+        'User-Agent': USER_AGENT,
+        'Accept': '*/*',
+        'Cookie': '',
+        'DNT': '1'
+                }
+
+    proxy = os.environ.get('https_proxy')
+    if proxy:
+        try:
+            url = parse_url(proxy)
+        except Exception as e:
+            LOGERR(e)
+            return headers, proxy
+
+        # Strip username and password (if present) and update headers
+        if url.auth:
+            proxy = proxy.replace(url.auth + '@', '')
+            auth_headers = make_headers(basic_auth=url.auth)
+            headers.update(auth_headers)
+
+        LOGDBG('proxy: [%s]', proxy)
+
+    return headers, proxy
+
+MYHEADERS, MYPROXY = gen_headers()
 
 
 class BukuCrypt:
@@ -955,14 +985,6 @@ class BukuDb:
 
         done = {'value': 0}  # count threads completed
         processed = {'value': 0}  # count number of records processed
-
-        # An additional call to generate default headers
-        # gen_headers() is called within network_handler()
-        # However, this initial call to setup headers
-        # ensures there is no race condition among the
-        # initial threads to setup headers
-        if not MYHEADERS:
-            gen_headers()
 
         cond = threading.Condition()
         cond.acquire()
@@ -2522,8 +2544,6 @@ class BukuDb:
             Shortened url on success, None on failure.
         """
 
-        global MYPROXY
-
         if not index and not url:
             LOGERR('Either a valid DB index or URL required')
             return None
@@ -2543,9 +2563,6 @@ class BukuDb:
             _u = urlbase + 'shorturl&format=simple&url=' + qp(url)
         else:
             _u = urlbase + 'expand&format=simple&shorturl=' + qp(url)
-
-        if MYPROXY is None:
-            gen_headers()
 
         if MYPROXY:
             manager = urllib3.ProxyManager(
@@ -3354,36 +3371,6 @@ def get_data_from_page(resp):
         return (None, None, None)
 
 
-def gen_headers():
-    """Generate headers for network connection."""
-
-    global MYHEADERS, MYPROXY
-
-    MYHEADERS = {
-        'Accept-Encoding': 'gzip,deflate',
-        'User-Agent': USER_AGENT,
-        'Accept': '*/*',
-        'Cookie': '',
-        'DNT': '1'
-                }
-
-    MYPROXY = os.environ.get('https_proxy')
-    if MYPROXY:
-        try:
-            url = parse_url(MYPROXY)
-        except Exception as e:
-            LOGERR(e)
-            return
-
-        # Strip username and password (if present) and update headers
-        if url.auth:
-            MYPROXY = MYPROXY.replace(url.auth + '@', '')
-            auth_headers = make_headers(basic_auth=url.auth)
-            MYHEADERS.update(auth_headers)
-
-        LOGDBG('proxy: [%s]', MYPROXY)
-
-
 def get_PoolManager():
     """Creates a pool manager with proxy support, if applicable.
 
@@ -3433,9 +3420,6 @@ def network_handler(url, http_head=False):
         method = 'HEAD'
     else:
         method = 'GET'
-
-    if not MYHEADERS:
-        gen_headers()
 
     try:
         manager = get_PoolManager()
@@ -4218,11 +4202,6 @@ def browse(url):
 
 def check_upstream_release():
     """Check and report the latest upstream release version."""
-
-    global MYPROXY
-
-    if MYPROXY is None:
-        gen_headers()
 
     if MYPROXY:
         manager = urllib3.ProxyManager(
